@@ -1,30 +1,86 @@
+// bluetooth_service.dart
+import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../model/sensor_data.dart';
 
 class BleService {
-  final Guid serviceUUID = Guid("12345678-1234-1234-1234-1234567890AB");
-  final Guid charUUID = Guid("ABCD1234-1234-5678-1234-ABCDEF123456");
+  // Scan for BLE devices
+  Stream<List<ScanResult>> scan() async* {
+    // Check if Bluetooth is supported
+    if (await FlutterBluePlus.isSupported == false) {
+      throw Exception("Bluetooth not supported on this device");
+    }
 
-  Stream<List<ScanResult>> scan() {
-    FlutterBluePlus.startScan(timeout: const Duration(seconds: 4));
-    return FlutterBluePlus.scanResults;
+    // Check if Bluetooth is turned on
+    final adapterState = await FlutterBluePlus.adapterState.first;
+    if (adapterState != BluetoothAdapterState.on) {
+      throw Exception("Please turn on Bluetooth");
+    }
+
+    List<ScanResult> results = [];
+
+    // Listen to scan results
+    final subscription = FlutterBluePlus.scanResults.listen((scanResults) {
+      results = scanResults;
+    });
+
+    try {
+      // Start scanning with a timeout
+      await FlutterBluePlus.startScan(
+        timeout: const Duration(seconds: 4),
+        androidUsesFineLocation: true,
+      );
+
+      // Emit results periodically during scan
+      for (int i = 0; i < 4; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+        yield results;
+      }
+
+      // Stop scanning
+      await FlutterBluePlus.stopScan();
+
+      // Emit final results
+      yield results;
+    } finally {
+      await subscription.cancel();
+      await FlutterBluePlus.stopScan();
+    }
   }
 
+  // Connect to device and return characteristic
   Future<BluetoothCharacteristic?> connect(BluetoothDevice device) async {
-    await device.connect(timeout: const Duration(seconds: 8));
-    await device.requestMtu(100);
+    try {
+      // Connect to the device
+      await device.connect(timeout: const Duration(seconds: 15));
 
-    List<BluetoothService> services = await device.discoverServices();
-    for (var s in services) {
-      if (s.uuid == serviceUUID) {
-        for (var c in s.characteristics) {
-          if (c.uuid == charUUID) return c;
+      // Discover services
+      List<BluetoothService> services = await device.discoverServices();
+
+      // Replace these with your actual ESP32 UUIDs
+      const serviceUuid = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+      const characteristicUuid = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+
+      // Find the target characteristic
+      for (var service in services) {
+        if (service.uuid.toString().toLowerCase() ==
+            serviceUuid.toLowerCase()) {
+          for (var char in service.characteristics) {
+            if (char.uuid.toString().toLowerCase() ==
+                characteristicUuid.toLowerCase()) {
+              return char;
+            }
+          }
         }
       }
+
+      return null;
+    } catch (e) {
+      print('Connection error: $e');
+      rethrow;
     }
-    return null;
   }
 
   /// Expected: Light:50|Smoke:20
