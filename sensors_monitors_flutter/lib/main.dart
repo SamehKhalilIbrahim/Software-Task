@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
@@ -27,8 +28,8 @@ class _SensorMonitorPageState extends State<SensorMonitorPage> {
   BluetoothDevice? device;
   BluetoothCharacteristic? characteristic;
 
-  String lightValue = "--";
-  String smokeValue = "--";
+  String lightValue = "0";
+  String smokeValue = "0";
 
   List<ScanResult> scanResults = [];
   bool isScanning = false;
@@ -40,6 +41,42 @@ class _SensorMonitorPageState extends State<SensorMonitorPage> {
   void initState() {
     super.initState();
     startScan();
+  }
+
+  Future<void> postDataToAPI(double light, double smoke) async {
+    final Map<String, dynamic> data = {
+      // These keys MUST match the lightValue and smokeValue in your NestJS DTO
+      'lightValue': light,
+      'smokeValue': smoke,
+    };
+
+    print('Attempting to post: $data');
+
+    try {
+      final Dio dio = Dio();
+      final response = await dio.post(
+        "http://192.168.1.2:3000/readings",
+        data: data, // Dio automatically handles JSON encoding of the Map
+        options: Options(headers: {'Content-Type': 'application/json'}),
+      );
+
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        print('✅ API Post Successful! Response: ${response.data}');
+      } else {
+        print(
+          '❌ API Post Failed. Status: ${response.statusCode}, Body: ${response.data}',
+        );
+      }
+      setState(() {
+        print('Data posted: Light=$light, Smoke=$smoke');
+      });
+    } on DioException catch (e) {
+      // Catch specific Dio errors (e.g., network failure, server error response)
+      print('❌ Dio Error Posting Data: ${e.message}');
+    } catch (e) {
+      // Catch other unexpected errors
+      print('❌ General Error Posting Data: $e');
+    }
   }
 
   void startScan() async {
@@ -63,8 +100,15 @@ class _SensorMonitorPageState extends State<SensorMonitorPage> {
   Future<void> connect(BluetoothDevice d) async {
     device = d;
 
-    await device!.connect(timeout: const Duration(seconds: 10));
-
+    try {
+      await device!.connect(timeout: const Duration(seconds: 8));
+    } catch (e) {
+      print("Retry BLE connect...");
+      await device!.disconnect();
+      await Future.delayed(const Duration(seconds: 1));
+      await device!.connect(timeout: const Duration(seconds: 8));
+    }
+    await device!.requestMtu(100);
     List<BluetoothService> services = await device!.discoverServices();
     for (BluetoothService s in services) {
       if (s.uuid == SERVICE_UUID) {
@@ -94,7 +138,12 @@ class _SensorMonitorPageState extends State<SensorMonitorPage> {
       smokeValue = parts[1].split(":")[1];
     }
 
-    setState(() {});
+    setState(() {
+      postDataToAPI(
+        lightValue.isEmpty ? 0.0 : double.parse(lightValue),
+        smokeValue.isEmpty ? 0.0 : double.parse(smokeValue),
+      );
+    });
   }
 
   @override
