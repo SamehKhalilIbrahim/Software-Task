@@ -40,6 +40,6 @@ This project showcases a full pipeline from a physical sensor → mobile device 
 ---
 
 ## 🎥 Full Project Demo  
-👉 **[Watch Full Demo Video](YOUR_LINK_HERE)**
+👉 **[Watch Full Demo Video](https://www.loom.com/share/330296c1d38d44eab50a7f2385ccb922)**
 
 ---
